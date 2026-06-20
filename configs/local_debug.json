@@ -1,0 +1,19 @@
+{
+  "run_mode": "local_debug",
+  "dataset": "Breakfast",
+  "split_id": 1,
+  "max_train_videos": 20,
+  "max_test_videos": 10,
+  "epochs_baseline": 1,
+  "epochs_teacher": 1,
+  "epochs_student": 1,
+  "batch_size": 1,
+  "num_stages": 2,
+  "num_layers": 8,
+  "num_f_maps": 64,
+  "learning_rate": 0.0005,
+  "weight_decay": 0.00001,
+  "kd_temperature": 4.0,
+  "lambda_ce": 1.0,
+  "lambda_kd": 1.0
+}
