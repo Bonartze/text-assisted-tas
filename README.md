@@ -1,160 +1,184 @@
-# Text-Assisted Temporal Action Segmentation
+# Current Status
 
-This repository contains a proof-of-concept for text-assisted temporal action segmentation on the Breakfast dataset.
 
-The current experiment uses existing Breakfast I3D/MS-TCN-style visual features and CLIP text embeddings generated from action labels. The main goal of the current stage is to test whether text can be used during training while keeping the final student model video-only at inference time.
+## Project goal
 
-Detailed progress and results are documented in:
+The project investigates whether text information can improve Temporal Action Segmentation when used during training, while keeping the final inference model video-only.
 
-```text
-docs/current_status.md
-```
+The current target dataset is **Breakfast split 1**.
 
-## Current stage
+## Completed work
 
-The current implementation focuses on Breakfast split 1 and includes:
+### 1. Breakfast data preparation
 
-* data preparation and validation;
-* CLIP ViT-B/16 text embeddings for Breakfast action labels;
-* an MS-TCN-style visual-only baseline;
-* a text-aware teacher model;
-* a video-only student trained with cross entropy;
-* a video-only student trained with knowledge distillation from the text-aware teacher.
-
-The current full Breakfast split 1 run completed successfully.
-
-| Model                   | Test accuracy | Text during training | Text during inference |
-| ----------------------- | ------------: | -------------------: | --------------------: |
-| `baseline_visual_only`  |        0.5330 |                   no |                    no |
-| `text_aware_teacher`    |        0.4043 |                  yes |                   yes |
-| `student_ce_only`       |        0.5435 |                   no |                    no |
-| `student_kd_video_only` |        0.4836 |                  yes |                    no |
-
-The current best model is the CE-only video student. The KD/text-guided setup works technically, but it does not yet improve over the video-only baselines on the full Breakfast split 1 run.
-
-## Repository structure
+The Breakfast MS-TCN data layout was prepared and verified:
 
 ```text
-.
-├── README.md
-├── requirements.txt
-├── configs/
-│   ├── README.md
-│   ├── local_debug.json
-│   ├── scale1_control.json
-│   └── full_split1.json
-├── docs/
-│   ├── current_status.md
-│   ├── 01_data_preparation_summary.csv
-│   └── 01_project_status.json
-└── notebooks/
-    ├── 01_data_preparation.ipynb
-    ├── 02_text_embeddings_breakfast.ipynb
-    └── 03_mstcn_teacher_student_training.ipynb
+features/
+groundTruth/
+splits/
+mapping.txt
 ```
 
-## Data
+Raw Breakfast videos were downloaded from Hugging Face and matched to the MS-TCN split files.
 
-Large data files are not included in this repository.
-
-The expected local data layout is:
+Final raw-video matching result:
 
 ```text
-data/
-├── zenodo_ms_tcn_data/
-│   └── breakfast/
-│       ├── features/
-│       ├── groundTruth/
-│       ├── splits/
-│       └── mapping.txt
-└── text_assisted_tas/
-    └── breakfast/
-        └── text_embeddings/
-            ├── breakfast_clip_vitb16_text_embedding_config.json
-            ├── breakfast_clip_vitb16_text_embedding_metadata.csv
-            └── breakfast_clip_vitb16_text_embeddings.npy
+1712 / 1712 videos matched
 ```
 
-The `data/` directory is intentionally ignored by Git.
+### 2. CLIP text embeddings
 
-## Setup
+CLIP text embeddings were extracted for the Breakfast action labels. These embeddings were used in the I3D + CLIP proof-of-concept experiments.
 
-Create and activate a virtual environment:
+### 3. Official I3D MS-TCN baseline
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
+An official MS-TCN visual-only baseline was trained on the precomputed I3D Breakfast features.
+
+Result on Breakfast split 1:
+
+| Model | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
+|---|---:|---:|---:|---:|---:|
+| Official MS-TCN visual-only, 30 epochs | 55.38 | 44.97 | 39.05 | 34.80 | 25.25 |
+
+Validity checks:
+
+```text
+Prediction files: 252
+Missing predictions: 0
+Length mismatches: 0
+Total evaluated frames: 505422
 ```
 
-Install PyTorch separately depending on the CUDA setup.
+### 4. I3D + CLIP text teacher / KD proof-of-concept
 
-For the local GTX 1060 setup used during development:
+An official-style MS-TCN-compatible text-teacher / video-only-student KD experiment was run.
 
-```bash
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+Result on Breakfast split 1:
+
+| Model | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
+|---|---:|---:|---:|---:|---:|
+| Student CE only | 63.86 | 54.90 | 47.15 | 44.42 | 35.27 |
+| Concat text teacher | 76.96 | 70.65 | 67.50 | 63.95 | 52.23 |
+| KD student from text teacher | 70.98 | 58.53 | 50.16 | 46.86 | 38.33 |
+
+Interpretation:
+
+```text
+The text-aware teacher is strong.
+The KD student remains video-only at inference and improves over the official visual-only I3D baseline.
 ```
 
-Then install the remaining requirements:
+Limitation:
 
-```bash
-pip install -r requirements.txt
+```text
+This is still a proof-of-concept because I3D visual features and CLIP text features are not from the same aligned latent space.
 ```
 
-Register the environment as a Jupyter kernel:
+### 5. ProcedureVRL full feature extraction
 
-```bash
-python -m ipykernel install --user --name text-assisted-tas --display-name "Python (text-assisted-tas)"
+ProcedureVRL was configured in Colab, and several compatibility issues in the official repository were fixed.
+
+The full Breakfast split 1 was processed with a pretrained ProcedureVRL checkpoint.
+
+Extraction result:
+
+```text
+Videos processed: 1712
+Train videos: 1460
+Test videos: 252
+Raw output shape: [1712, 16, 9871]
+Per-video feature shape: [9871, 16]
+Feature/label length mismatches: 0
 ```
 
-## Notebooks
+The extracted ProcedureVRL outputs were converted into an MS-TCN-compatible dataset:
 
-### `01_data_preparation.ipynb`
+```text
+features/*.npy
+groundTruth/*.txt
+splits/*.bundle
+mapping.txt
+```
 
-Validates the Breakfast data structure and checks feature files, ground-truth files, split files, and class mapping.
+Output dataset path:
 
-### `02_text_embeddings_breakfast.ipynb`
+```text
+/content/drive/MyDrive/mmf_tas_lab_data/text_assisted_tas/breakfast/procedurevrl/runs/procedurevrl_breakfast_full_split1_split1_views16/mstcn_format
+```
 
-Creates CLIP text embeddings for Breakfast action classes and saves the text embedding files used by the training notebook.
+### 6. MS-TCN-style baseline on ProcedureVRL features
 
-### `03_mstcn_teacher_student_training.ipynb`
+A visual-only MS-TCN-style baseline was trained on the coarse ProcedureVRL features.
 
-Runs the MS-TCN-style teacher-student training experiment.
+Result on Breakfast split 1:
 
-Available run modes:
+| Model | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
+|---|---:|---:|---:|---:|---:|
+| MS-TCN-style visual-only on ProcedureVRL coarse features | 48.91 | 49.15 | 55.46 | 54.38 | 42.61 |
 
-* `local_debug`: small sanity-check run;
-* `scale1_control`: controlled proof-of-concept run;
-* `full_split1`: full Breakfast split 1 run.
+Best checkpoint:
+
+```text
+Epoch: 69
+Train videos: 1460
+Test videos: 252
+Feature dim: 9871
+Feature length: 16
+Number of classes: 48
+```
+
+## Main interpretation
+
+The ProcedureVRL extraction and TAS training pipeline now works end-to-end:
+
+```text
+raw Breakfast videos
+→ ProcedureVRL checkpoint
+→ extracted ProcedureVRL features
+→ MS-TCN-compatible dataset
+→ visual-only TAS baseline
+→ Acc / Edit / F1 metrics
+```
+
+This is a successful pipeline validation and a useful preliminary baseline.
+
+However, the current ProcedureVRL features are coarse clip-level outputs with temporal length 16 per video. They are not dense frame-level features. Therefore, the ProcedureVRL result should not be presented as a fully fair frame-level comparison to the I3D MS-TCN baseline.
+
 
 ## Current limitations
 
-The current implementation is a proof-of-concept, not the final benchmark.
-
-Current limitations:
-
-* only frame-wise accuracy is reported;
-* Edit score and F1@10/25/50 are not implemented yet;
-* the MS-TCN model is an MS-TCN-style prototype, not yet an official MS-TCN repo integration;
-* the current CLIP usage is text-side only;
-* ProcedureVRL / CLIP-like visual feature extraction is not integrated yet;
-* Assembly101 and LTContext are not integrated yet.
+1. The I3D + CLIP KD result is a proof-of-concept because the visual and text representations are not aligned.
+2. The current ProcedureVRL features are coarse output-level features, not hidden dense video embeddings.
+3. The ProcedureVRL baseline uses downsampled labels of length 16, so the temporal resolution differs from the I3D frame-level setup.
+4. The ProcedureVRL result should be described as preliminary and not as a final comparison.
 
 ## Next steps
 
-Planned next steps:
+Extract hidden ProcedureVRL video embeddings before the final classification head.
 
-1. Add standard TAS metrics:
+Desired next representation:
 
-   * Edit score;
-   * F1@10;
-   * F1@25;
-   * F1@50.
+```text
+dense or semi-dense video embeddings
+rather than final 9871-dimensional output predictions
+```
 
-2. Add a simple concatenation-based teacher baseline.
+Then repeat the text-teacher / video-only-student KD experiment in a more aligned visual-text feature space.
 
-3. Improve the text-aware teacher and KD setup.
+### Next scientific step
 
-4. Run all Breakfast splits and report averaged results.
+Run:
 
-5. Extend the pipeline toward ProcedureVRL / CLIP-like visual features, Assembly101 and LTContext.
+```text
+ProcedureVRL/CLIP-aligned text teacher
+→ video-only student distillation
+→ compare with visual-only ProcedureVRL baseline
+```
+
+The main question will be:
+
+```text
+Does text supervision improve a final video-only TAS model when visual and text features are better aligned?
+```
