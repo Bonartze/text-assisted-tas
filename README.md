@@ -1,184 +1,171 @@
-# Current Status
+# Text-Assisted Temporal Action Segmentation
 
+This repository contains experiments for text-assisted Temporal Action Segmentation (TAS), with a focus on the Breakfast dataset and ProcedureVRL/ProceduralVLR-style video representations.
 
-## Project goal
-
-The project investigates whether text information can improve Temporal Action Segmentation when used during training, while keeping the final inference model video-only.
-
-The current target dataset is **Breakfast split 1**.
-
-## Completed work
-
-### 1. Breakfast data preparation
-
-The Breakfast MS-TCN data layout was prepared and verified:
+The main question is:
 
 ```text
-features/
-groundTruth/
-splits/
-mapping.txt
+Can textual supervision be used during training to improve a final video-only TAS model?
 ```
 
-Raw Breakfast videos were downloaded from Hugging Face and matched to the MS-TCN split files.
-
-Final raw-video matching result:
+The current final answer is:
 
 ```text
-1712 / 1712 videos matched
+Yes, in a controlled training-time text-supervision setup:
+a privileged text teacher improves a video-only KD student over a CE-only video student.
 ```
 
-### 2. CLIP text embeddings
+The final deployed/evaluated student model uses only video features at inference.
 
-CLIP text embeddings were extracted for the Breakfast action labels. These embeddings were used in the I3D + CLIP proof-of-concept experiments.
+---
 
-### 3. Official I3D MS-TCN baseline
+## Repository structure
 
-An official MS-TCN visual-only baseline was trained on the precomputed I3D Breakfast features.
+```text
+notebooks/
+  00_download_breakfast_raw_videos_hf.ipynb
+  01_prepare_breakfast_mstcn_data.ipynb
+  02_extract_clip_text_embeddings_breakfast.ipynb
+  03_internal_teacher_student_kd_i3d_clip.ipynb
+  04_concat_text_teacher_kd_i3d_clip.ipynb
+  05_official_mstcn_i3d_baseline_breakfast.ipynb
+  06_official_style_text_teacher_kd_i3d_clip.ipynb
+  07_procedurevrl_extract_features_breakfast.ipynb
+  08_mstcn_procedurevrl_coarse_baseline_breakfast.ipynb
+  09_procedurevrl_hidden_embeddings_breakfast_COLAB.ipynb
+  10_mstcn_procedurevrl_hidden_baseline_breakfast.ipynb
+  11_procedurevrl_hidden_privileged_text_teacher_kd_breakfast.ipynb
+```
 
-Result on Breakfast split 1:
+Large data files, raw videos, checkpoints, extracted features, prediction files, and model weights are intentionally not stored in Git.
 
-| Model | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
+---
+
+## Notebook pipeline
+
+| Notebook | Purpose |
+|---|---|
+| `00_download_breakfast_raw_videos_hf.ipynb` | Downloads raw Breakfast videos. |
+| `01_prepare_breakfast_mstcn_data.ipynb` | Prepares the Breakfast MS-TCN-format dataset from existing features/labels/splits. |
+| `02_extract_clip_text_embeddings_breakfast.ipynb` | Extracts CLIP text embeddings for Breakfast action labels. |
+| `03_internal_teacher_student_kd_i3d_clip.ipynb` | Early internal teacher/student KD proof-of-concept using I3D features and CLIP text. |
+| `04_concat_text_teacher_kd_i3d_clip.ipynb` | Improved concat text-teacher experiment using I3D + CLIP. |
+| `05_official_mstcn_i3d_baseline_breakfast.ipynb` | Official-style MS-TCN visual-only Breakfast baseline on I3D features. |
+| `06_official_style_text_teacher_kd_i3d_clip.ipynb` | Official-style text-teacher / video-only student KD experiment on I3D + CLIP. |
+| `07_procedurevrl_extract_features_breakfast.ipynb` | Extracts coarse ProcedureVRL output-level features and converts them to MS-TCN format. |
+| `08_mstcn_procedurevrl_coarse_baseline_breakfast.ipynb` | Trains an MS-TCN-style baseline on coarse ProcedureVRL features. |
+| `09_procedurevrl_hidden_embeddings_breakfast_COLAB.ipynb` | Extracts hidden 512-dimensional ProcedureVRL video embeddings from `model.head`. |
+| `10_mstcn_procedurevrl_hidden_baseline_breakfast.ipynb` | Trains the visual-only MS-TCN-style baseline on hidden ProcedureVRL embeddings. |
+| `11_procedurevrl_hidden_privileged_text_teacher_kd_breakfast.ipynb` | Trains a privileged text teacher and a final video-only KD student. |
+
+---
+
+## Data layout
+
+The notebooks expect the working data under Google Drive:
+
+```text
+/content/drive/MyDrive/mmf_tas_lab_data/
+```
+
+Important subdirectories:
+
+```text
+mmf_tas_lab_data/
+  zenodo_ms_tcn_data/
+    breakfast/
+      features/
+      groundTruth/
+      splits/
+      mapping.txt
+
+  breakfast_raw_videos/
+    videos/
+
+  text_assisted_tas/
+    breakfast/
+      text_embeddings/
+        breakfast_clip_vitb16_text_embeddings.npy
+        breakfast_clip_vitb16_text_embedding_metadata.csv
+
+      procedurevrl/
+        runs/
+          procedurevrl_breakfast_full_split1_split1_views16/
+
+      procedurevrl_hidden/
+        runs/
+          procedurevrl_hidden_full_split1_split1_views16/
+          mstcn_hidden_baseline_split1/
+          procedurevrl_hidden_privileged_text_teacher_kd_full_split1_split1/
+```
+
+---
+
+## Main results
+
+All Breakfast results below are on split 1.
+
+| Experiment | Features | Model | Inference input | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| I3D baseline | I3D | Official MS-TCN visual-only, 30 epochs | video only | 55.38 | 44.97 | 39.05 | 34.80 | 25.25 |
+| I3D + CLIP KD proof-of-concept | I3D + CLIP text teacher | Video-only KD student, `λ=0.05` | video only | 70.98 | 58.53 | 50.16 | 46.86 | 38.33 |
+| ProcedureVRL coarse baseline | ProcedureVRL output-level features | MS-TCN-style visual-only | video only | 48.91 | 49.15 | 55.46 | 54.38 | 42.61 |
+| ProcedureVRL hidden baseline | ProcedureVRL hidden embeddings | MS-TCN-style visual-only | video only | 58.04 | 55.57 | 58.58 | 57.73 | 45.76 |
+| Controlled CE-only student | ProcedureVRL hidden embeddings | MS-TCN-style CE-only student | video only | 57.42 | 55.61 | 55.76 | 54.29 | 45.34 |
+| Privileged text teacher | ProcedureVRL hidden + ground-truth text | Oracle / privileged teacher | video + ground-truth text | 98.26 | 96.26 | 96.90 | 96.90 | 96.71 |
+| Privileged-text KD student | ProcedureVRL hidden embeddings | Video-only KD student, `λ=0.05`, `T=4.0` | video only | 57.99 | 56.46 | 56.67 | 55.42 | 46.19 |
+
+The final controlled comparison is:
+
+| Comparison | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
 |---|---:|---:|---:|---:|---:|
-| Official MS-TCN visual-only, 30 epochs | 55.38 | 44.97 | 39.05 | 34.80 | 25.25 |
+| KD student − CE-only student | +0.57 | +0.85 | +0.91 | +1.13 | +0.85 |
 
-Validity checks:
+This supports the training-time text-supervision hypothesis in a controlled setting: the teacher uses text during training, while the final KD student is video-only at inference.
 
-```text
-Prediction files: 252
-Missing predictions: 0
-Length mismatches: 0
-Total evaluated frames: 505422
-```
+---
 
-### 4. I3D + CLIP text teacher / KD proof-of-concept
+## ProcedureVRL feature variants
 
-An official-style MS-TCN-compatible text-teacher / video-only-student KD experiment was run.
+Two ProcedureVRL-based representations were extracted:
 
-Result on Breakfast split 1:
+| Representation | Per-video feature shape | Interpretation |
+|---|---:|---|
+| Coarse output-level ProcedureVRL features | `[9871, 16]` | Output-level clip features / prediction-like ProcedureVRL outputs. Useful as pipeline validation. |
+| Hidden ProcedureVRL embeddings | `[512, 16]` | Hidden video embeddings extracted from `model.head = Linear(768 → 512)`. This is the stronger and cleaner representation for text-assisted experiments. |
 
-| Model | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
-|---|---:|---:|---:|---:|---:|
-| Student CE only | 63.86 | 54.90 | 47.15 | 44.42 | 35.27 |
-| Concat text teacher | 76.96 | 70.65 | 67.50 | 63.95 | 52.23 |
-| KD student from text teacher | 70.98 | 58.53 | 50.16 | 46.86 | 38.33 |
-
-Interpretation:
+The hidden extraction processed:
 
 ```text
-The text-aware teacher is strong.
-The KD student remains video-only at inference and improves over the official visual-only I3D baseline.
+videos: 1712
+train videos: 1460
+test videos: 252
+hidden shape: [1712, 16, 512]
+missing hidden positions: 0
+duplicates: 0
+NaNs: 0
 ```
 
-Limitation:
+---
+
+## Interpretation
+
+The earlier I3D + CLIP experiments are useful as proof-of-concept, but the visual and text features come from different latent spaces. The ProcedureVRL pipeline addresses this by moving the main experiments to ProcedureVRL hidden video embeddings.
+
+The first fixed text-prototype teacher did not improve over the visual-only hidden baseline. The final notebook therefore uses a stronger privileged teacher: during training it receives ground-truth action text embeddings at every timestep. This teacher is not deployable, but it can provide soft supervision to a video-only student.
+
+The important final model is the KD student:
 
 ```text
-This is still a proof-of-concept because I3D visual features and CLIP text features are not from the same aligned latent space.
+training:  video features + distillation from privileged text teacher
+inference: video features only
 ```
 
-### 5. ProcedureVRL full feature extraction
+---
 
-ProcedureVRL was configured in Colab, and several compatibility issues in the official repository were fixed.
+## Known limitations
 
-The full Breakfast split 1 was processed with a pretrained ProcedureVRL checkpoint.
-
-Extraction result:
-
-```text
-Videos processed: 1712
-Train videos: 1460
-Test videos: 252
-Raw output shape: [1712, 16, 9871]
-Per-video feature shape: [9871, 16]
-Feature/label length mismatches: 0
-```
-
-The extracted ProcedureVRL outputs were converted into an MS-TCN-compatible dataset:
-
-```text
-features/*.npy
-groundTruth/*.txt
-splits/*.bundle
-mapping.txt
-```
-
-Output dataset path:
-
-```text
-/content/drive/MyDrive/mmf_tas_lab_data/text_assisted_tas/breakfast/procedurevrl/runs/procedurevrl_breakfast_full_split1_split1_views16/mstcn_format
-```
-
-### 6. MS-TCN-style baseline on ProcedureVRL features
-
-A visual-only MS-TCN-style baseline was trained on the coarse ProcedureVRL features.
-
-Result on Breakfast split 1:
-
-| Model | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
-|---|---:|---:|---:|---:|---:|
-| MS-TCN-style visual-only on ProcedureVRL coarse features | 48.91 | 49.15 | 55.46 | 54.38 | 42.61 |
-
-Best checkpoint:
-
-```text
-Epoch: 69
-Train videos: 1460
-Test videos: 252
-Feature dim: 9871
-Feature length: 16
-Number of classes: 48
-```
-
-## Main interpretation
-
-The ProcedureVRL extraction and TAS training pipeline now works end-to-end:
-
-```text
-raw Breakfast videos
-→ ProcedureVRL checkpoint
-→ extracted ProcedureVRL features
-→ MS-TCN-compatible dataset
-→ visual-only TAS baseline
-→ Acc / Edit / F1 metrics
-```
-
-This is a successful pipeline validation and a useful preliminary baseline.
-
-However, the current ProcedureVRL features are coarse clip-level outputs with temporal length 16 per video. They are not dense frame-level features. Therefore, the ProcedureVRL result should not be presented as a fully fair frame-level comparison to the I3D MS-TCN baseline.
-
-
-## Current limitations
-
-1. The I3D + CLIP KD result is a proof-of-concept because the visual and text representations are not aligned.
-2. The current ProcedureVRL features are coarse output-level features, not hidden dense video embeddings.
-3. The ProcedureVRL baseline uses downsampled labels of length 16, so the temporal resolution differs from the I3D frame-level setup.
-4. The ProcedureVRL result should be described as preliminary and not as a final comparison.
-
-## Next steps
-
-Extract hidden ProcedureVRL video embeddings before the final classification head.
-
-Desired next representation:
-
-```text
-dense or semi-dense video embeddings
-rather than final 9871-dimensional output predictions
-```
-
-Then repeat the text-teacher / video-only-student KD experiment in a more aligned visual-text feature space.
-
-### Next scientific step
-
-Run:
-
-```text
-ProcedureVRL/CLIP-aligned text teacher
-→ video-only student distillation
-→ compare with visual-only ProcedureVRL baseline
-```
-
-The main question will be:
-
-```text
-Does text supervision improve a final video-only TAS model when visual and text features are better aligned?
-```
+1. The ProcedureVRL features are temporally coarse: each video is represented by 16 clips.
+2. Breakfast results are reported on split 1 only.
+3. Several model selections are exploratory and use the test split to select the best checkpoint. For stricter evaluation, a train/validation/test protocol should be used.
+4. The privileged teacher is an oracle model because it uses ground-truth action text. It is used only for distillation, not for deployment.
