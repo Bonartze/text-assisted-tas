@@ -338,7 +338,7 @@ Notebook 22 produces:
 
 ---
 
-## Recommended follow-up
+## Follow-up
 
 The highest-value follow-up is a three-seed repetition of:
 
