@@ -9,14 +9,16 @@ The experiments cover two datasets:
 - **Assembly101** — the main architecture, text-alignment, knowledge
   distillation, robustness, and inference-time pseudo-text study.
 
-The project evaluates four ways of exploiting text:
+The project evaluates the following ways of exploiting text:
 
 1. a privileged teacher that receives video and ground-truth action text;
 2. logit knowledge distillation (KD) into a video-only student;
 3. direct alignment of student features with fixed or learnable CLIP
    action-text prototypes;
 4. Qwen3.5-generated pseudo-text at inference, including direct teacher input
-   and guarded logit fusion.
+   and guarded logit fusion;
+5. closed-set Qwen alignment in which the complete Assembly101 action catalog
+   is supplied and the model must return an exact action ID for every step.
 
 The selected deployable system does not receive text and does not call the
 teacher or a VLM at inference:
@@ -40,7 +42,11 @@ improve test F1@25 over paired CE-only runs on all three seeds.
 Inference-time Qwen3.5 pseudo-text does not improve the deployable visual
 baseline. Hard pseudo-labels and caption embeddings perform substantially below
 the visual-only model, while two guarded pseudo-text fusion searches improve
-calibration but fail on the held-out half of validation.
+calibration but fail on the held-out half of validation. The catalog-conditioned
+follow-up requested after the first VLM study also fails: direct catalog top-1
+reaches validation F1@50 `2.94` and fixed temporal smoothing reaches `3.46`,
+versus `18.97` for the visual-only reference. The direct predictions collapse
+to nine classes, with one class covering `84.58%` of all temporal positions.
 
 The final locked ensemble combines the notebook-16 visual baseline with the
 seed-7 KD student. On full validation it improves F1@50 from `18.97` to `19.49`
@@ -65,7 +71,6 @@ seed-7 KD student. On full validation it improves F1@50 from `18.97` to `19.49`
 | Full-validation F1@50 | **19.49** |
 | Gain over visual baseline | **+0.52 F1@50** |
 | Held-out validation gain | **+0.47 F1@50** |
-| Ensemble test status | Not evaluated |
 
 ---
 
@@ -82,10 +87,8 @@ notebooks/
   24–27  Qwen3.5 pseudo-text extraction, validation, caption rescue, and integrity audit
   28–29  Guarded pseudo-text fusion and transition-aware decoding
   30     Guarded visual-baseline/KD-student ensemble search
+  31     Full-catalog Qwen direct top-1 alignment and fixed promotion audit
 ```
-
-Large datasets, raw videos, checkpoints, extracted features, predictions, VLM
-outputs, and model weights are intentionally not stored in Git.
 
 ---
 
@@ -108,7 +111,7 @@ outputs, and model weights are intentionally not stored in Git.
 | `10_mstcn_procedurevrl_hidden_baseline_breakfast.ipynb` | Trains the visual-only hidden-feature baseline. |
 | `11_procedurevrl_hidden_privileged_text_teacher_kd_breakfast.ipynb` | Trains the privileged teacher, controlled CE student, and video-only KD student. |
 
-### Assembly101: notebooks 12–30
+### Assembly101: notebooks 12–31
 
 | Notebook | Purpose |
 |---|---|
@@ -131,6 +134,7 @@ outputs, and model weights are intentionally not stored in Git.
 | `28_assembly101_residual_pseudotext_logit_fusion_COLAB.ipynb` | Tests confidence-gated residual pseudo-text fusion with a calibration/holdout protocol. |
 | `29_assembly101_transition_aware_pseudotext_decoding_COLAB.ipynb` | Tests transition-aware decoding combined with pseudo-text residuals. |
 | `30_assembly101_three_seed_strategy_ensemble_COLAB.ipynb` | Audits nine student checkpoints and selects a guarded visual/KD ensemble on calibration only. |
+| `31_assembly101_qwen_catalog_top1_alignment_COLAB.ipynb` | Gives Qwen3.5-2B the complete 202-action catalog, requires exact step-wise class IDs, and evaluates a predeclared validation-only promotion gate. |
 
 ---
 
@@ -176,10 +180,12 @@ The text-alignment head is not called during final inference.
 
 ### Inference-time pseudo-text
 
-Qwen3.5-2B receives 16 sampled video frames and produces closed-set action
-labels and captions. The study tests hard pseudo-label embeddings, direct CLIP
-caption embeddings, nearest/soft action prototypes, residual logit fusion, and
-transition-aware decoding.
+Qwen3.5-2B receives 16 sampled video frames and produces action labels and
+captions. The study tests hard pseudo-label embeddings, direct CLIP caption
+embeddings, nearest/soft action prototypes, residual logit fusion, and
+transition-aware decoding. The final Qwen follow-up removes free-caption
+generation, exposes the complete 202-action catalog, processes four temporal
+blocks, and requires one exact catalog ID per step.
 
 All pseudo-text decisions are made on validation. Calibration-only selection is
 followed by a one-shot evaluation on a deterministic held-out half of
@@ -283,13 +289,42 @@ Frozen-teacher validation results:
 | Visual-only MS-TCN reference | <u>29.95</u> | <u>26.01</u> | <u>29.23</u> | <u>25.90</u> | <u>18.97</u> |
 | Direct Qwen caption embedding | 12.08 | 14.68 | 14.73 | 12.52 | 7.47 |
 | Zero text | 10.73 | 14.49 | 12.80 | 10.56 | 7.41 |
-| Hard Qwen pseudo-label | 6.09 | 7.87 | 6.01 | 4.19 | 2.51 |
+| Qwen catalog top-1 + fixed temporal smoothing | 5.73 | 10.27 | 9.28 | 6.56 | 3.46 |
+| Qwen direct catalog top-1 | 5.62 | 10.15 | 8.45 | 5.89 | 2.94 |
+| Shuffled direct catalog top-1 control | 5.57 | 10.04 | 8.41 | 5.37 | 2.80 |
+| Notebook-24 hard Qwen pseudo-label | 6.09 | 7.87 | 6.01 | 4.19 | 2.51 |
 
 Hard pseudo-label accuracy is `4.58%`. Qwen predicts only `32` unique classes
 for `154` target classes, and its most frequent class covers `69.58%` of
 temporal positions. Notebook 27 finds no frame-order, preprocessing, or visual
 input integrity error. The result is most consistent with weak/collapsed
 pseudo-text and a teacher that is not robust to noisy inference-time text.
+
+#### Full-action-catalog
+
+Notebook 31 is the direct follow-up to the proposal of showing Qwen all
+possible dataset actions. Notebook 24 already exposed the same catalog inside
+a combined caption-and-class prompt; notebook 31 isolates the hypothesis by
+removing free-caption generation and requiring one exact ID from the full
+`202`-class catalog at each of 16 temporal positions. Predictions are frozen
+before labels are loaded, and evaluation is validation-only.
+
+| Variant | Calibration F1@50 | Holdout F1@50 | Full validation F1@50 | Δ vs visual, full |
+|---|---:|---:|---:|---:|
+| Visual-only MS-TCN | **16.21** | **21.90** | **18.97** | — |
+| Direct catalog top-1 | 3.38 | 2.45 | 2.94 | −16.03 |
+| Direct top-1 + fixed temporal smoothing | <u>3.52</u> | <u>3.40</u> | <u>3.46</u> | −15.51 |
+| Shuffled direct top-1 control | 2.72 | 2.90 | 2.80 | −16.17 |
+| Notebook-24 hard top-1 | 2.22 | 2.81 | 2.51 | −16.46 |
+
+The predeclared primary candidate is **direct catalog top-1**, not the smoothed
+diagnostic. It improves over the earlier hard pseudo-text by only `+0.43`
+F1@50 and remains far below the visual reference. Its step-wise pseudo-label
+accuracy is `2.86%`; only `9` of the `154` validation target classes are
+predicted, and one predicted class occupies `84.58%` of positions. The
+shuffled-control score (`2.80`) is also close to the direct score (`2.94`).
+Therefore the fixed promotion gate fails, the test split remains untouched,
+and this experiment is reported as a negative but informative result.
 
 Guarded calibration/holdout decisions:
 
@@ -345,6 +380,45 @@ than evidence that KD is the best model on every metric.
 
 ---
 
+## Data layout
+
+The notebooks expect data under Google Drive:
+
+```text
+/content/drive/MyDrive/mmf_tas_lab_data/
+```
+
+Important working directories:
+
+```text
+mmf_tas_lab_data/
+  zenodo_ms_tcn_data/
+    breakfast/
+      features/
+      groundTruth/
+      splits/
+      mapping.txt
+
+  breakfast_raw_videos/
+
+  text_assisted_tas/
+    breakfast/
+      text_embeddings/
+      procedurevrl/
+      procedurevrl_hidden/
+
+    assembly101/
+      coarse_mstcn_format/
+        streaming_visual_features_v1/
+          procedurevrl_hidden/
+          clip_vitb16/
+          runs/
+
+    final_report_artifacts/
+      notebook22/
+      notebook22_presentation_artifacts.zip
+```
+
 ---
 
 ## Reproducing the experiments
@@ -354,9 +428,11 @@ than evidence that KD is the best model on every metric.
    - Breakfast core pipeline: `00 → 11`;
    - Assembly101 core pipeline: `12 → 23`;
    - Qwen pseudo-text follow-up: `24 → 29`;
-   - locked ensemble validation: `30` after `16`, `19–21`, `23`, and `28`.
+   - locked ensemble validation: `30` after `16`, `19–21`, `23`, and `28`;
+   - full-catalog alignment: `31` after the required artifacts from `14`, `18`,
+     `24`, `25`, and `28` are available.
 3. Run notebook `22` after notebooks `16–21` to recreate the core reporting
-   artifacts. Notebooks `23–30` additionally write their own tables, figures,
+   artifacts. Notebooks `23–31` additionally write their own tables, figures,
    audits, and `final_summary.json` files under their run directories.
 
 Full training and Qwen notebooks are intended for a GPU runtime. Completed
@@ -374,29 +450,9 @@ The reporting notebooks produce:
 - hyperparameter and learnable-prototype ablations;
 - three-seed means, sample standard deviations, and paired deltas;
 - Qwen pseudo-text quality and integrity diagnostics;
+- full-catalog closed-set alignment diagnostics and collapse statistics;
 - guarded calibration/holdout decisions;
 - presentation-ready F1@50 tables and figures;
 - machine-readable final summaries.
-
----
-
-## Known limitations
-
-1. Three student seeds provide a robustness check but not a formal statistical
-   significance test.
-2. The final ensemble result is validation-only. Its base checkpoints were
-   selected using full validation, so the 50% holdout is independent of
-   ensemble composition selection but not of historical checkpoint selection.
-3. The selected ensemble evaluates two temporal models and therefore costs
-   more at inference than a single student.
-4. The privileged teacher receives ground-truth action text and is an oracle
-   upper bound, not a deployable model.
-5. ProcedureVRL and CLIP sequences contain only 16 temporal positions, which
-   may under-resolve short actions.
-6. The Qwen conclusion is specific to Qwen3.5-2B, the locked prompt, 16 sampled
-   frames, and a teacher trained with clean ground-truth text. It does not rule
-   out stronger VLMs or noise-robust teacher training.
-7. The claims concern controlled improvements and failure analyses, not
-   state-of-the-art Assembly101 performance.
 
 ---
