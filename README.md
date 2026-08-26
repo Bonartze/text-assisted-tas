@@ -17,8 +17,9 @@ The project evaluates the following ways of exploiting text:
    action-text prototypes;
 4. Qwen3.5-generated pseudo-text at inference, including direct teacher input
    and guarded logit fusion;
-5. closed-set Qwen alignment in which the complete Assembly101 action catalog
-   is supplied and the model must return an exact action ID for every step.
+5. closed-set Qwen alignment in which the complete action catalog is supplied
+   and the model must return an exact action ID for every step, evaluated first
+   on Assembly101 (`202` classes) and then on Breakfast (`48` classes).
 
 The selected deployable system does not receive text and does not call the
 teacher or a VLM at inference:
@@ -47,6 +48,16 @@ follow-up requested after the first VLM study also fails: direct catalog top-1
 reaches validation F1@50 `2.94` and fixed temporal smoothing reaches `3.46`,
 versus `18.97` for the visual-only reference. The direct predictions collapse
 to nine classes, with one class covering `84.58%` of all temporal positions.
+
+The Breakfast follow-up is consistent with catalog size contributing to this
+failure, although the cross-dataset comparison cannot isolate catalog size from
+other dataset differences. In the `48`-class setting, Qwen top-1 accuracy is
+`7.12%` against a `2.08%` random baseline, `37` classes are predicted, and the
+dominant-class share falls to `20.11%`. Nevertheless, the generated text still
+does not improve TAS: the frozen teacher reaches F1@50 `7.43` with direct Qwen
+text and `7.61` with temporal smoothing, versus `9.22` with zero text and
+`45.34` for the controlled visual-only student. The observed collapse is much
+weaker on Breakfast, but the pseudo-text remains unreliable for the teacher.
 
 The final locked ensemble combines the notebook-16 visual baseline with the
 seed-7 KD student. On full validation it improves F1@50 from `18.97` to `19.49`
@@ -88,13 +99,14 @@ notebooks/
   28–29  Guarded pseudo-text fusion and transition-aware decoding
   30     Guarded visual-baseline/KD-student ensemble search
   31     Full-catalog Qwen direct top-1 alignment and fixed promotion audit
+  32     Breakfast 48-class Qwen closed-set follow-up and exploratory evaluation
 ```
 
 ---
 
 ## Notebook pipeline
 
-### Breakfast: notebooks 00–11
+### Breakfast: notebooks 00–11 and 32
 
 | Notebook | Purpose |
 |---|---|
@@ -110,6 +122,7 @@ notebooks/
 | `09_procedurevrl_hidden_embeddings_breakfast_COLAB.ipynb` | Extracts 512-dimensional ProcedureVRL hidden embeddings. |
 | `10_mstcn_procedurevrl_hidden_baseline_breakfast.ipynb` | Trains the visual-only hidden-feature baseline. |
 | `11_procedurevrl_hidden_privileged_text_teacher_kd_breakfast.ipynb` | Trains the privileged teacher, controlled CE student, and video-only KD student. |
+| `32_breakfast_qwen35_2b_catalog_top1_alignment_COLAB.ipynb` | Gives Qwen3.5-2B the complete 48-action catalog, freezes predictions before loading labels, and evaluates direct and temporally smoothed pseudo-text with the notebook-11 checkpoints. |
 
 ### Assembly101: notebooks 12–31
 
@@ -187,9 +200,21 @@ transition-aware decoding. The final Qwen follow-up removes free-caption
 generation, exposes the complete 202-action catalog, processes four temporal
 blocks, and requires one exact catalog ID per step.
 
-All pseudo-text decisions are made on validation. Calibration-only selection is
-followed by a one-shot evaluation on a deterministic held-out half of
-validation; failed configurations are not promoted to test.
+Notebook 32 repeats the same closed-set question on Breakfast with its complete
+`48`-action catalog. It processes all `252` split-1 test videos, produces one
+action ID for each of `16` uniformly sampled temporal positions, checkpoints
+each sequence, and freezes all Qwen outputs before ground-truth labels are
+loaded. It reports pseudo-label accuracy relative to the `1/48` random level,
+class coverage, dominant-class share, and downstream frozen-teacher metrics.
+Because the notebook-11 checkpoints were previously selected using the same
+split-1 test set, this follow-up is explicitly exploratory and is not used for
+additional tuning.
+
+All Assembly101 pseudo-text decisions are made on validation. Calibration-only
+selection is followed by a one-shot evaluation on a deterministic held-out
+half of validation; failed configurations are not promoted to test. The later
+Breakfast experiment is a fixed, exploratory cross-dataset diagnostic rather
+than another model-selection stage.
 
 ---
 
@@ -378,6 +403,43 @@ The controlled KD student improves over the same-notebook CE-only student by
 student on F1@25 (`57.73` versus `55.42`), so it is reported as context rather
 than evidence that KD is the best model on every metric.
 
+### Breakfast 48-class Qwen follow-up
+
+Notebook 32 directly tests whether the much smaller Breakfast catalog prevents
+the closed-set Qwen collapse observed on Assembly101. All `252/252` split-1
+videos complete, yielding `4,032` frozen temporal predictions.
+
+| Variant | Inference input | Accuracy | Edit | F1@10 | F1@25 | F1@50 |
+|---|---|---:|---:|---:|---:|---:|
+| Privileged teacher | Video + ground-truth text | 98.26 | 96.26 | 96.90 | 96.90 | 96.71 |
+| Controlled visual-only student | Video only | **57.42** | **55.61** | **55.76** | **54.29** | **45.34** |
+| Teacher + zero text | Video + zero text | 13.14 | 19.94 | 21.09 | 17.25 | 9.22 |
+| Teacher + Qwen temporal | Video + generated text | 13.62 | 21.36 | 18.99 | 14.57 | 7.61 |
+| Teacher + Qwen direct top-1 | Video + generated text | 13.00 | 20.72 | 18.29 | 13.79 | 7.43 |
+| Teacher + shuffled Qwen control | Video + shuffled generated text | 11.04 | 14.99 | 12.50 | 9.15 | 4.52 |
+
+The generated action IDs are substantially less collapsed than on Assembly101:
+
+| Pseudo-label diagnostic | Assembly101 (`202` classes) | Breakfast (`48` classes) |
+|---|---:|---:|
+| Random top-1 level | 0.50% | 2.08% |
+| Qwen top-1 accuracy | 2.86% | **7.12%** |
+| Accuracy over random | 5.78× | 3.42× |
+| Predicted classes | 9 | **37** |
+| Target classes present in evaluation | 154 | 44 |
+| Dominant-class share | 84.58% | **20.11%** |
+
+The cross-dataset comparison is diagnostic rather than a comparison of raw TAS
+difficulty and does not causally isolate catalog size, because the dataset also
+changes. It is nevertheless consistent with a smaller candidate set producing
+more diverse and more accurate closed-set predictions. Direct Qwen text remains
+`1.79` F1@50 below zero text and `37.91` below the controlled visual-only
+student. Fixed temporal smoothing adds only `+0.18` F1@50 over direct Qwen
+text. Thus the Assembly101 failure cannot be explained only by the large action
+catalog: the generated labels remain too noisy, and the privileged teacher is
+not robust to this inference-time text distribution. No Breakfast pseudo-text
+variant is promoted or tuned further on split 1.
+
 ---
 
 ## Data layout
@@ -406,6 +468,8 @@ mmf_tas_lab_data/
       text_embeddings/
       procedurevrl/
       procedurevrl_hidden/
+      runs/
+        32_breakfast_qwen_catalog_top1_alignment/
 
     assembly101/
       coarse_mstcn_format/
@@ -426,14 +490,17 @@ mmf_tas_lab_data/
 1. Open the notebooks in Google Colab and mount Google Drive.
 2. Run the desired pipeline sequentially:
    - Breakfast core pipeline: `00 → 11`;
+   - Breakfast 48-class Qwen follow-up: `32` after `00`, `02`, `09`, and `11`;
    - Assembly101 core pipeline: `12 → 23`;
    - Qwen pseudo-text follow-up: `24 → 29`;
    - locked ensemble validation: `30` after `16`, `19–21`, `23`, and `28`;
    - full-catalog alignment: `31` after the required artifacts from `14`, `18`,
      `24`, `25`, and `28` are available.
 3. Run notebook `22` after notebooks `16–21` to recreate the core reporting
-   artifacts. Notebooks `23–31` additionally write their own tables, figures,
-   audits, and `final_summary.json` files under their run directories.
+   artifacts. Notebooks `23–32` additionally write their own tables, figures,
+   audits, and `final_summary.json` files under their run directories. Notebook
+   `32` also writes resumable Breakfast Qwen predictions and its exploratory
+   split-1 comparison under the Breakfast run directory.
 
 Full training and Qwen notebooks are intended for a GPU runtime. Completed
 runs, checkpoints, logits, captions, and summaries are stored on Google Drive
@@ -451,6 +518,7 @@ The reporting notebooks produce:
 - three-seed means, sample standard deviations, and paired deltas;
 - Qwen pseudo-text quality and integrity diagnostics;
 - full-catalog closed-set alignment diagnostics and collapse statistics;
+- Assembly101/Breakfast catalog-size and pseudo-label-collapse comparison;
 - guarded calibration/holdout decisions;
 - presentation-ready F1@50 tables and figures;
 - machine-readable final summaries.
